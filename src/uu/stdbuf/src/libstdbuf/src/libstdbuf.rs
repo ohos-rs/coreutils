@@ -206,6 +206,23 @@ pub unsafe extern "C" fn __stdbuf_get_stderr() -> *mut FILE {
     }
 }
 
+#[cfg(any(target_env = "ohos", test))]
+fn ohos_allocation_size(mode: c_int, size: size_t) -> Option<size_t> {
+    if mode == _IONBF {
+        return Some(0);
+    }
+    // OHOS musl reserves eight bytes of caller-provided storage for ungetc.
+    // Its setvbuf does not allocate storage or resize an existing buffer.
+    // https://github.com/openharmony/third_party_musl/blob/master/src/stdio/setvbuf.c
+    // https://github.com/openharmony/third_party_musl/blob/master/src/internal/stdio_impl.h
+    let capacity = if size == 0 {
+        libc::BUFSIZ as size_t
+    } else {
+        size
+    };
+    capacity.checked_add(8)
+}
+
 fn set_buffer(stream: *mut FILE, value: &str) {
     let (mode, size): (c_int, size_t) = match value {
         "0" => (_IONBF, 0_usize),
@@ -218,13 +235,37 @@ fn set_buffer(stream: *mut FILE, value: &str) {
             (_IOFBF, buff_size as size_t)
         }
     };
-    let res: c_int;
-    unsafe {
-        let buffer: *mut c_char = ptr::null_mut();
-        assert!(buffer.is_null());
-        res = libc::setvbuf(stream, buffer, mode, size);
-    }
+    #[cfg(target_env = "ohos")]
+    let (buffer, size) = {
+        let allocation = ohos_allocation_size(mode, size).unwrap_or_else(|| {
+            let _ = writeln!(stderr(), "failed to allocate a {value} byte stdio buffer");
+            std::process::exit(1);
+        });
+        let buffer = if allocation == 0 {
+            ptr::null_mut()
+        } else {
+            // SAFETY: malloc accepts the checked byte count. Successful storage
+            // must outlive the FILE, so it stays allocated for the process lifetime.
+            let buffer = unsafe { libc::malloc(allocation) }.cast::<c_char>();
+            if buffer.is_null() {
+                let _ = writeln!(stderr(), "failed to allocate a {value} byte stdio buffer");
+                std::process::exit(1);
+            }
+            buffer
+        };
+        (buffer, allocation)
+    };
+    #[cfg(not(target_env = "ohos"))]
+    let buffer: *mut c_char = ptr::null_mut();
+    // SAFETY: stream is a standard FILE obtained from libc. The optional
+    // buffer is writable for size bytes and remains allocated after success.
+    let res = unsafe { libc::setvbuf(stream, buffer, mode, size) };
     if res != 0 {
+        #[cfg(target_env = "ohos")]
+        // SAFETY: rejected storage is not attached to the FILE; free accepts NULL.
+        unsafe {
+            libc::free(buffer.cast())
+        };
         let _ = writeln!(
             stderr(),
             "could not set buffering of {} to mode {mode}",
@@ -247,5 +288,26 @@ pub unsafe extern "C" fn __stdbuf() {
     }
     if let Ok(val) = env::var("_STDBUF_O") {
         set_buffer(unsafe { __stdbuf_get_stdout() }, &val);
+    }
+}
+
+#[cfg(test)]
+mod ohos_tests {
+    use super::*;
+
+    #[test]
+    fn explicit_capacity_includes_musl_pushback_storage() {
+        assert_eq!(ohos_allocation_size(_IOFBF, 1), Some(9));
+        assert_eq!(ohos_allocation_size(_IOFBF, 4096), Some(4104));
+        assert_eq!(
+            ohos_allocation_size(_IOLBF, 0),
+            Some(libc::BUFSIZ as usize + 8)
+        );
+        assert_eq!(ohos_allocation_size(_IONBF, 0), Some(0));
+    }
+
+    #[test]
+    fn buffer_capacity_overflow_is_rejected() {
+        assert_eq!(ohos_allocation_size(_IOFBF, usize::MAX), None);
     }
 }
