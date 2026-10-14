@@ -146,6 +146,13 @@ fn main() {
 mod tests {
     use super::*;
 
+    #[cfg(target_env = "ohos")]
+    #[test]
+    fn ohos_can_unwind_panics() {
+        let result = std::panic::catch_unwind(|| panic!("OHOS unwind regression"));
+        assert!(result.is_err());
+    }
+
     #[test]
     fn ohos_feature_selects_unix_utilities_and_multicall_aliases() {
         let map = util_map::<std::vec::IntoIter<OsString>>();

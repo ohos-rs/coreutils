@@ -12,6 +12,24 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // The ARM SDK's libc link stub exports EHABI symbols which some device
+    // runtimes do not supply. Bundle LLVM unwind instead of depending on them.
+    if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("ohos")
+        && env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("arm")
+    {
+        println!("cargo:rerun-if-env-changed=OHOS_NDK_HOME");
+        let sdk =
+            PathBuf::from(env::var_os("OHOS_NDK_HOME").ok_or(
+                "set OHOS_NDK_HOME to the SDK root containing native/ for ARM OHOS builds",
+            )?);
+        let library = sdk.join("native/llvm/lib/arm-linux-ohos");
+        if !library.join("libunwind.a").is_file() {
+            return Err("ARM OHOS requires the SDK's LLVM libunwind.a".into());
+        }
+        println!("cargo:rustc-link-search=native={}", library.display());
+        println!("cargo:rustc-link-lib=static:+whole-archive=unwind");
+    }
+
     cfg_aliases! {
         // Directory open flags that grant search but not read access.
         // tests/by-util/test_install.rs repeats the union of these targets.
