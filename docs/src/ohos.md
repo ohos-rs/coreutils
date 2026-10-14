@@ -10,19 +10,25 @@ the same map as `coreutils --list`, including `[` and the `dir`/`vdir` aliases.
 
 ## Build the HNP
 
-Install Python 3.11+, Rust with the OHOS target, and the official OHOS SDK.
+Install Python 3.11+, Rust 1.97.1 or newer with the OHOS targets, and the official OHOS SDK.
 `OHOS_NDK_HOME` should contain `native/` and `toolchains/`.
 
 ```sh
-rustup target add aarch64-unknown-linux-ohos
+rustup toolchain install 1.97.1 --profile minimal
+rustup target add --toolchain 1.97.1 aarch64-unknown-linux-ohos armv7-unknown-linux-ohos x86_64-unknown-linux-ohos
 python3 util/ohos/build.py --sdk "$OHOS_NDK_HOME" --pty-probe
 ```
 
 The default profile is `release-small`. Outputs are under
 `target/ohos/hnp/arm64-v8a/`: `uutils-coreutils.hnp`, and an unpacked staging
 directory containing the executable, MIT license, command list, and
-`hnp.json`. `--profile dev`, `--offline`, `--out`, and `--arch` are supported.
-Only arm64 has been exercised in the HarmonyOS emulator.
+`hnp.json`. `--profile dev`, `--offline`, `--out`, `--target-dir`, and `--arch`
+are supported. `--arch` accepts `arm64-v8a`, `armeabi-v7a`, and `x86_64`.
+The default Rust toolchain is `1.97.1`; `--toolchain` selects another version.
+ARM32 needs the time64 redirects in the repository Cargo configuration and
+a standard library that preserves post-2038 metadata, as described in
+[OHOS platform support](ohos-platform.md). Only arm64 has been exercised in
+the HarmonyOS emulator; the three CPU architectures are checked with QEMU.
 
 `--pty-probe` adds a small C stdio fixture used to verify actual buffering.
 Omit it for a production package. `libstdbuf.so` is always packaged in `lib/`
