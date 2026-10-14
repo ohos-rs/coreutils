@@ -134,3 +134,10 @@ and Rust tests including panic unwinding. QEMU validates the CPU and libc
 ABI on Linux; platform access tokens, SELinux policy, native-code signing,
 HNP installation and real TimeService IPC require a HarmonyOS device or
 full system emulator.
+
+On 2026-10-15, all three architectures passed with Rust 1.97.1, SDK
+26.0.0.105 and qemu-user 10.0.13, using real OHOS musl runtimes and ordinary
+UID 1000. Each architecture passed 107 command entry-point checks, 42
+functional checks and 54 Rust tests, including native SDK record layouts,
+panic unwinding, time64 timers and post-2038 file timestamps. TimeService
+used the explicit test fixture described above.
