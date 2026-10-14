@@ -146,6 +146,13 @@ fn main() {
 mod tests {
     use super::*;
 
+    #[cfg(target_env = "ohos")]
+    #[test]
+    fn ohos_can_unwind_panics() {
+        let result = std::panic::catch_unwind(|| panic!("OHOS unwind regression"));
+        assert!(result.is_err());
+    }
+
     #[test]
     fn package_list_matches_multicall_map() {
         let names: Vec<_> = include_str!(concat!(env!("OUT_DIR"), "/utilities.txt"))

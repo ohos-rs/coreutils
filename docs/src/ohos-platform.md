@@ -11,7 +11,15 @@ maintaining a separate command list.
 ## Cross compilation
 
 Install the official OHOS SDK and the Rust target. Set `OHOS_NDK_HOME` to the
-SDK directory containing `native/`. For arm64:
+SDK directory containing `native/`. All three SDK architectures are supported:
+
+| SDK ABI | Rust target | SDK compiler wrapper |
+| --- | --- | --- |
+| arm64-v8a | aarch64-unknown-linux-ohos | aarch64-unknown-linux-ohos-clang |
+| armeabi-v7a | armv7-unknown-linux-ohos | armv7-unknown-linux-ohos-clang |
+| x86_64 | x86_64-unknown-linux-ohos | x86_64-unknown-linux-ohos-clang |
+
+For arm64:
 
 ```sh
 rustup target add aarch64-unknown-linux-ohos
@@ -24,6 +32,14 @@ export CXXFLAGS_aarch64_unknown_linux_ohos=-D__MUSL__
 export LIBSTDBUF_DIR=/absolute/device/path/to/the/installed/library
 cargo build --target aarch64-unknown-linux-ohos --no-default-features --features ohos
 ```
+
+For another architecture, replace the Rust target and its environment-variable
+suffix with the values from the table. Use the SDK compiler wrappers: the ARM32
+wrapper supplies `-march=armv7-a -mfloat-abi=softfp -mtune=generic-armv7-a -mthumb`.
+ARM32 also bundles the SDK's `native/llvm/lib/arm-linux-ohos/libunwind.a` in
+utilities and the preload library. The whole archive is linked so standalone
+utilities cannot accidentally resolve EHABI symbols against libc's SDK link
+stub, which exports symbols absent from some actual OHOS runtimes.
 
 `LIBSTDBUF_DIR` is the target installation directory, not the host build
 directory. `stdbuf` uses the existing external-library feature; the loader
@@ -71,3 +87,40 @@ cargo test -p uu_stdbuf_libstdbuf --lib
 cargo test --test tests --no-default-features --features date -- test_date::test_timezone_override_for_epoch_and_reference
 cargo fmt --all --check
 ```
+
+## QEMU architecture checks
+
+`util/ohos-qemu/build.py` builds all 107 applets and four Rust test binaries
+for each architecture. Supply real OHOS musl `libc.so` files built for each
+target. SDK sysroot libraries are link stubs and cannot serve as runtime
+libraries. No OHOS system service is available in qemu-user, so the test-only
+TimeService fixture returns a requested timezone or an error. It is never
+installed with production artifacts.
+
+```sh
+python3 util/ohos-qemu/build.py --sdk "$OHOS_NDK_HOME" \
+  --runtime aarch64-unknown-linux-ohos=/path/to/arm64/libc.so \
+  --runtime armv7-unknown-linux-ohos=/path/to/arm32/libc.so \
+  --runtime x86_64-unknown-linux-ohos=/path/to/x86_64/libc.so
+```
+
+On a Linux host with `qemu-aarch64`, `qemu-arm`, `qemu-x86_64`, Python 3 and
+a native C compiler, build the static native exec adapter. It forwards guest
+`LD_PRELOAD` to QEMU without loading the foreign library into QEMU itself.
+Copy the built artifacts to that host if cross-compiling elsewhere, then run
+as an ordinary UID with write access to the output directory:
+
+```sh
+cc -O2 -Wall -Wextra -Werror -static util/ohos-qemu/fixtures/native-launcher.c \
+  -o target/ohos-qemu/native-launcher
+python3 util/ohos-qemu/check.py --artifacts target/ohos-qemu \
+  --launcher target/ohos-qemu/native-launcher
+```
+
+The JSON report records artifact hashes, SDK C layouts, all command entry
+points, ordinary-user file permissions, PTY handling, time64 clocks and
+session records, timezone resolution, C stdio buffering, child termination
+and Rust tests including panic unwinding. QEMU validates the CPU and libc
+ABI on Linux; platform access tokens, SELinux policy, native-code signing,
+HNP installation and real TimeService IPC require a HarmonyOS device or
+full system emulator.

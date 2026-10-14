@@ -100,6 +100,16 @@ mod tests {
     use super::*;
     use std::io::Cursor;
 
+    #[cfg(target_env = "ohos")]
+    #[test]
+    fn native_record_matches_the_ohos_sdk_time64_abi() {
+        assert_eq!(size_of::<libc::time_t>(), 8);
+        assert_eq!(size_of::<libc::timeval>(), 16);
+        assert_eq!(size_of::<utmpx>(), 400);
+        assert_eq!(std::mem::offset_of!(utmpx, ut_user), 44);
+        assert_eq!(std::mem::offset_of!(utmpx, ut_tv), 344);
+    }
+
     fn record_bytes(pid: i32) -> Vec<u8> {
         let mut record = std::mem::MaybeUninit::<utmpx>::zeroed();
         // SAFETY: the allocation is initialized byte-for-byte, including padding.
