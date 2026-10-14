@@ -82,7 +82,6 @@ itertools = "0.15.0"
 itoa = "1.0.15"
 jiff = "0.2.18"
 jiff-icu = "0.2.2"
-jiff-tzdb = "0.1"
 libc = "0.2.186"
 lscolors = { version = "0.21.0", default-features = false, features = [
   "gnu_legacy",
@@ -622,29 +621,10 @@ feat_os_unix_android = [
   #
   "feat_require_unix",
 ]
-# OHOS uses app-owned PTY records instead of absent libc utmpx entry points,
-# and ships libstdbuf as a signed HNP library instead of extracting it at runtime.
-feat_os_ohos = [
-  "feat_common_core",
-  "feat_require_unix_core",
-  "df",
-  "du",
-  "env",
-  "hostname",
-  "kill",
-  "nohup",
-  "nproc",
-  "more",
-  "sync",
-  "timeout",
-  "whoami",
-  "uptime",
-  "who",
-  "users",
-  "pinky",
-  "stdbuf",
-  "feat_external_libstdbuf",
-]
+# OHOS shares the Unix utility selection. Its native session records and
+# stdio buffering are handled by the target-specific implementations.
+# Use a separately installed library because app storage cannot load unsigned code.
+feat_os_ohos = ["feat_os_unix", "feat_external_libstdbuf"]
 ## feature sets with requirements (restricting cross-platform availability)
 #
 # ** NOTE: these `feat_require_...` sets should be minimized as much as possible to encourage cross-platform availability of utilities

@@ -19,6 +19,31 @@ use uutests::util::is_locale_available;
 use uutests::{at_and_ucmd, new_ucmd, util_name};
 
 #[test]
+fn test_timezone_override_for_epoch_and_reference() {
+    let scenario = TestScenario::new(util_name!());
+    let reference = scenario.fixtures.plus("reference");
+    std::fs::File::create(&reference)
+        .unwrap()
+        .set_modified(std::time::UNIX_EPOCH)
+        .unwrap();
+    for (zone, expected) in [
+        ("UTC0", "1970-01-01 00:00:00 +0000\n"),
+        ("Asia/Shanghai", "1970-01-01 08:00:00 +0800\n"),
+        ("America/New_York", "1969-12-31 19:00:00 -0500\n"),
+    ] {
+        for args in [["-d", "@0"], ["-r", "reference"]] {
+            scenario
+                .ucmd()
+                .env("TZ", zone)
+                .args(&args)
+                .arg("+%F %T %z")
+                .succeeds()
+                .stdout_is(expected);
+        }
+    }
+}
+
+#[test]
 fn test_invalid_arg() {
     new_ucmd!().arg("--definitely-invalid").fails_with_code(1);
 }
