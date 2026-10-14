@@ -137,16 +137,16 @@ def toolchain_environment(sdk: Path, arch: str, tools: Path):
 
 
 def build(sdk: Path, arch: str, profile: str, output: Path, offline: bool, pty_probe=False,
-          target_dir: Path | None = None):
+          target_dir: Path | None = None, toolchain: str = "1.97.1"):
     target, _ = TARGETS[arch]
     target_dir = target_dir or ROOT / "target/ohos"
     tools = target_dir / "toolchain" / arch
     env = toolchain_environment(sdk, arch, tools)
     metadata = json.loads(subprocess.check_output(
-        ["cargo", "metadata", "--no-deps", "--format-version=1"], cwd=ROOT))
+        ["cargo", "+" + toolchain, "metadata", "--no-deps", "--format-version=1"], cwd=ROOT))
     package_id = next(p["id"] for p in metadata["packages"] if p["name"] == "coreutils")
     stdbuf_id = next(p["id"] for p in metadata["packages"] if p["name"] == "uu_stdbuf")
-    command = ["cargo", "build", "--target", target, "--profile", profile,
+    command = ["cargo", "+" + toolchain, "build", "--target", target, "--profile", profile,
                "--target-dir", str(target_dir), "--no-default-features",
                "--features", "ohos,feat_diagnostics", "--bin", "coreutils",
                "--message-format=json-render-diagnostics"]
@@ -196,6 +196,8 @@ def main():
     parser.add_argument("--sdk", type=Path, default=os.environ.get("OHOS_NDK_HOME"),
                         help="SDK root containing native/ and toolchains/ (or OHOS_NDK_HOME)")
     parser.add_argument("--arch", choices=TARGETS, default="arm64-v8a")
+    parser.add_argument("--toolchain", default="1.97.1",
+                        help="Rust toolchain with ARM32 time64 metadata support")
     parser.add_argument("--profile", choices=("dev", "release", "release-small"), default="release-small")
     parser.add_argument("--out", type=Path, help="Output directory (defaults to target/ohos/hnp/<arch>)")
     parser.add_argument("--target-dir", type=Path, help="Cargo cache directory (defaults to target/ohos)")
@@ -207,7 +209,7 @@ def main():
         parser.error("set --sdk or OHOS_NDK_HOME")
     build(sdk_root(args.sdk), args.arch, args.profile,
           (args.out or ROOT / "target/ohos/hnp" / args.arch).resolve(), args.offline, args.pty_probe,
-          args.target_dir.resolve() if args.target_dir else None)
+          args.target_dir.resolve() if args.target_dir else None, args.toolchain)
 
 
 if __name__ == "__main__":
