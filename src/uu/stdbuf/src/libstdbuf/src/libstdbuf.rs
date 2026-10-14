@@ -264,7 +264,7 @@ fn set_buffer(stream: *mut FILE, value: &str) {
         #[cfg(target_env = "ohos")]
         // SAFETY: rejected storage is not attached to the FILE; free accepts NULL.
         unsafe {
-            libc::free(buffer.cast())
+            libc::free(buffer.cast());
         };
         let _ = writeln!(
             stderr(),
