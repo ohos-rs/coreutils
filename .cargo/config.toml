@@ -13,6 +13,11 @@ rustflags = ["-C", "target-feature=+crt-static"]
 [target.'cfg(target_env = "msvc")']
 rustflags = ["-C", "target-feature=+crt-static"]
 
+# OHOS ARM headers redirect the legacy time32 APIs to time64 symbols.
+# libc 0.2.190 selects time64 structures for OHOS but omits these redirects.
+[target.'cfg(all(target_env = "ohos", target_pointer_width = "32"))']
+rustflags = ["--cfg", "musl_redir_time64"]
+
 [env]
 # aws-lc is used only for checksum. Reduce binary size
 AWS_LC_SYS_NO_JITTER_ENTROPY = "1"

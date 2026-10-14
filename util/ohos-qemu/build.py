@@ -26,16 +26,16 @@ TESTS = {
         "--features",
         "ohos,feat_diagnostics",
     ],
-    "uucore": ["-p", "uucore", "--features", "utmpx", "--lib"],
+    "uucore": ["-p", "uucore", "--features", "utmpx,process", "--lib"],
     "date": ["-p", "uu_date", "--lib"],
     "stdbuf": ["-p", "uu_stdbuf_libstdbuf", "--lib"],
 }
 
 
-def cargo(command, env, log):
+def cargo(command, env, log, toolchain):
     with log.open("w") as stream:
         result = subprocess.run(
-            ["cargo", *command, "--message-format=json-render-diagnostics"],
+            ["cargo", "+" + toolchain, *command, "--message-format=json-render-diagnostics"],
             cwd=ROOT,
             env=env,
             text=True,
@@ -61,6 +61,9 @@ def main():
         metavar="TARGET=LIBC_SO",
         help="Real OHOS musl runtime for each target, not the SDK's link stub",
     )
+    parser.add_argument(
+        "--toolchain", default="1.97.1", help="Rust toolchain with ARM32 time64 metadata support"
+    )
     parser.add_argument("--out", type=Path, default=ROOT / "target/ohos-qemu")
     parser.add_argument("--target-dir", type=Path, default=ROOT / "target/ohos-qemu/cargo")
     args = parser.parse_args()
@@ -77,7 +80,9 @@ def main():
         parser.error("supply a real libc.so for all three targets")
     output = args.out.resolve()
     metadata = json.loads(
-        subprocess.check_output(["cargo", "metadata", "--no-deps", "--format-version=1"], cwd=ROOT)
+        subprocess.check_output(
+            ["cargo", "+" + args.toolchain, "metadata", "--no-deps", "--format-version=1"], cwd=ROOT
+        )
     )
     ids = {package["name"]: package["id"] for package in metadata["packages"]}
     results = {}
@@ -148,6 +153,7 @@ def main():
             ["build", "--profile", "release", "--target", target, *TESTS["coreutils"]],
             env,
             dest / "build.log",
+            args.toolchain,
         )
         binary = next(
             Path(m["executable"])
@@ -174,6 +180,7 @@ def main():
                 ["test", "--no-run", "--target", target, *options],
                 env,
                 dest / f"build-test-{label}.log",
+                args.toolchain,
             )
             binary = next(
                 Path(m["executable"])
@@ -186,6 +193,7 @@ def main():
             (dest / "bin" / ("test-" + label)).chmod(0o755)
         results[target] = {
             "build": "passed",
+            "toolchain": args.toolchain,
             "applets": len(names),
             "profile": "release, opt=2, panic=unwind",
         }

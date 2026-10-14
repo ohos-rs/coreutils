@@ -206,6 +206,31 @@ mod timer {
         }
     }
 
+    #[cfg(all(test, target_env = "ohos"))]
+    mod tests {
+        use super::*;
+
+        unsafe extern "C" {
+            #[cfg_attr(target_pointer_width = "32", link_name = "__timer_gettime64")]
+            fn timer_gettime(timer: libc::timer_t, value: *mut libc::itimerspec) -> libc::c_int;
+        }
+
+        #[test]
+        fn timer_uses_the_native_time64_abi() {
+            let mut timer = Timer::new().unwrap();
+            // Keep expiry well beyond this immediate read; dropping the timer
+            // cancels it before SIGALRM can affect another test.
+            timer.arm(Duration::from_millis(30_250)).unwrap();
+            let mut remaining = std::mem::MaybeUninit::zeroed();
+            // SAFETY: timer_gettime initializes the supplied native structure.
+            assert_eq!(unsafe { timer_gettime(timer.0, remaining.as_mut_ptr()) }, 0);
+            // SAFETY: the successful call above initialized the structure.
+            let remaining = unsafe { remaining.assume_init() };
+            assert!(remaining.it_value.tv_sec > 0);
+            assert!(remaining.it_value.tv_sec <= 30);
+        }
+    }
+
     /// Complements the libc bindings of Redox and Android with missing items.
     #[cfg(any(target_os = "redox", target_os = "android"))]
     #[allow(non_camel_case_types)]

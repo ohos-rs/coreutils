@@ -136,6 +136,10 @@ for target, emulator in MATRIX:
         )
         check("base64", tool("base64", "-d", input=tool("base64", input=b"abc").encode()) == "abc")
         check("float formatting", tool("printf", "%.2f", "1.5") == "1.50")
+        tool("touch", "-d", "@2200000000", source)
+        check(
+            "file timestamp beyond 2038", tool("stat", "-c", "%Y", source).strip() == "2200000000"
+        )
         tool("chmod", "600", source)
         check("stat size and mode", tool("stat", "-c", "%s %a", source).strip() == "17 600")
         tool("chmod", "000", source)
@@ -289,7 +293,7 @@ for target, emulator in MATRIX:
         unit_results = {}
         for label, filters in [
             ("coreutils", []),
-            ("uucore", ["native_file"]),
+            ("uucore", ["native_file", "timer_uses_the_native_time64_abi"]),
             ("date", []),
             ("stdbuf", []),
         ]:

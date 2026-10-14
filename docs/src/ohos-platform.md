@@ -10,7 +10,9 @@ maintaining a separate command list.
 
 ## Cross compilation
 
-Install the official OHOS SDK and the Rust target. Set `OHOS_NDK_HOME` to the
+Install the official OHOS SDK and the Rust targets using Rust 1.97.1 or newer.
+Rust 1.95's ARM32 standard library truncates file metadata timestamps after
+2038; Rust 1.97.1 preserves their full width. Set `OHOS_NDK_HOME` to the
 SDK directory containing `native/`. All three SDK architectures are supported:
 
 | SDK ABI | Rust target | SDK compiler wrapper |
@@ -22,7 +24,7 @@ SDK directory containing `native/`. All three SDK architectures are supported:
 For arm64:
 
 ```sh
-rustup target add aarch64-unknown-linux-ohos
+rustup target add --toolchain 1.97.1 aarch64-unknown-linux-ohos armv7-unknown-linux-ohos x86_64-unknown-linux-ohos
 export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER="$OHOS_NDK_HOME/native/llvm/bin/aarch64-unknown-linux-ohos-clang"
 export CC_aarch64_unknown_linux_ohos="$CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER"
 export CXX_aarch64_unknown_linux_ohos="$OHOS_NDK_HOME/native/llvm/bin/aarch64-unknown-linux-ohos-clang++"
@@ -30,7 +32,7 @@ export AR_aarch64_unknown_linux_ohos="$OHOS_NDK_HOME/native/llvm/bin/llvm-ar"
 export CFLAGS_aarch64_unknown_linux_ohos=-D__MUSL__
 export CXXFLAGS_aarch64_unknown_linux_ohos=-D__MUSL__
 export LIBSTDBUF_DIR=/absolute/device/path/to/the/installed/library
-cargo build --target aarch64-unknown-linux-ohos --no-default-features --features ohos
+cargo +1.97.1 build --target aarch64-unknown-linux-ohos --no-default-features --features ohos
 ```
 
 For another architecture, replace the Rust target and its environment-variable
@@ -40,6 +42,14 @@ ARM32 also bundles the SDK's `native/llvm/lib/arm-linux-ohos/libunwind.a` in
 utilities and the preload library. The whole archive is linked so standalone
 utilities cannot accidentally resolve EHABI symbols against libc's SDK link
 stub, which exports symbols absent from some actual OHOS runtimes.
+
+The repository Cargo configuration enables `musl_redir_time64` for ARM32.
+This matches the SDK header redirects while libc 0.2.190 selects time64
+structures without redirecting the corresponding functions. Without it,
+`timeout` can disarm its timer and calls using file timestamp structures
+can pass the wrong layout.
+When building outside this repository or overriding Rust flags, include
+`--cfg musl_redir_time64` in the ARM32 target's Rust flags as well.
 
 `LIBSTDBUF_DIR` is the target installation directory, not the host build
 directory. `stdbuf` uses the existing external-library feature; the loader
@@ -81,7 +91,7 @@ and session records.
 
 ```sh
 cargo test --bin coreutils --no-default-features --features ohos
-cargo test -p uucore --features utmpx --lib native_file
+cargo test -p uucore --features utmpx,process --lib -- native_file timer_uses_the_native_time64_abi
 cargo test -p uu_date --lib
 cargo test -p uu_stdbuf_libstdbuf --lib
 cargo test --test tests --no-default-features --features date -- test_date::test_timezone_override_for_epoch_and_reference
