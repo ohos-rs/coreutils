@@ -141,3 +141,20 @@ fn main() {
     }
     exit(1);
 }
+
+#[cfg(all(test, feature = "feat_os_ohos"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ohos_feature_selects_unix_utilities_and_multicall_aliases() {
+        let map = util_map::<std::vec::IntoIter<OsString>>();
+        for name in [
+            "[", "dir", "vdir", "date", "hostid", "stty", "tty", "uptime", "who", "users", "pinky",
+            "stdbuf",
+        ] {
+            assert!(map.contains_key(name), "missing {name}");
+        }
+        assert!(!map.contains_key("ohos"));
+    }
+}

@@ -33,6 +33,8 @@ The platforms in tier 2 are more vague, but include:
 
  - untested variations of the platforms above,
  - Redox OS,
+ - OHOS/HarmonyOS (`aarch64-unknown-linux-ohos`), using the
+   [OHOS platform feature set](ohos-platform.md),
  - and BSDs such as NetBSD & DragonFlyBSD.
 
 ## Utility compatibility per platform

@@ -720,6 +720,7 @@ impl FsMeta for StatFs {
     }
 
     #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg_attr(target_env = "ohos", allow(clippy::unnecessary_cast))]
     fn namelen(&self) -> u64 {
         self.f_namelen as u64
     }

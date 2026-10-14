@@ -50,8 +50,8 @@ pub fn main() {
                 "chcon" | "runcon" if !(target_os == "linux" || target_os == "android") => {
                     continue;
                 }
-                "default" | "macos" | "unix" | "windows" | "selinux" | "zip" | "clap_complete"
-                | "clap_mangen" | "fluent_syntax" | "openssl" => continue, // common/standard feature names
+                "default" | "macos" | "unix" | "windows" | "ohos" | "selinux" | "zip"
+                | "clap_complete" | "clap_mangen" | "fluent_syntax" | "openssl" => continue, // common/standard feature names
                 "nightly" | "test_unimplemented" | "expensive_tests" | "test_risky_names" => {
                     continue;
                 } // crate-local custom features

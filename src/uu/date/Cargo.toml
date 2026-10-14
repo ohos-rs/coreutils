@@ -37,10 +37,9 @@ libc = { workspace = true }
 rustix = { workspace = true, features = ["time"] }
 
 [target.'cfg(target_env = "ohos")'.dependencies]
-# OHOS has no /usr/share/zoneinfo or /etc/localtime: embed IANA tzdata so
-# ohos_system_zone() can resolve the TimeService timezone ID directly (pass-through,
-# no environment injection).
-jiff-tzdb = { workspace = true }
+# OHOS lacks the usual zoneinfo files. Use Jiff's bundled database for both
+# TZ overrides and the system timezone ID returned by TimeService.
+jiff = { workspace = true, features = ["tzdb-bundle-always"] }
 
 [target.'cfg(target_os = "wasi")'.dependencies]
 libc = { workspace = true }

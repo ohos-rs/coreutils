@@ -82,7 +82,6 @@ itertools = "0.15.0"
 itoa = "1.0.15"
 jiff = "0.2.18"
 jiff-icu = "0.2.2"
-jiff-tzdb = "0.1"
 libc = "0.2.186"
 lscolors = { version = "0.21.0", default-features = false, features = [
   "gnu_legacy",
@@ -403,6 +402,7 @@ default = ["feat_common_core", "feat_diagnostics"]
 ## OS feature shortcodes
 unix = ["feat_os_unix"]
 windows = ["feat_os_windows"]
+ohos = ["feat_os_ohos"]
 ## project-specific feature shortcodes
 expensive_tests = []
 # Opt-in: use OpenSSL (libcrypto) for md5/sha1/sha2-family digests in the
@@ -621,6 +621,10 @@ feat_os_unix_android = [
   #
   "feat_require_unix",
 ]
+# OHOS shares the Unix utility selection. Its native session records and
+# stdio buffering are handled by the target-specific implementations.
+# Use a separately installed library because app storage cannot load unsigned code.
+feat_os_ohos = ["feat_os_unix", "feat_external_libstdbuf"]
 ## feature sets with requirements (restricting cross-platform availability)
 #
 # ** NOTE: these `feat_require_...` sets should be minimized as much as possible to encourage cross-platform availability of utilities
