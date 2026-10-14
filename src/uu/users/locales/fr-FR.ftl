@@ -5,3 +5,6 @@ users-about-musl-warning =
     à cause de l'implémentation stub des fonctions utmpx de musl.
 users-long-usage = Afficher qui est actuellement connecté selon FICHIER.
     Si FICHIER n'est pas spécifié, utiliser { $default_path }. /var/log/wtmp comme FICHIER est courant.
+
+users-about-ohos-sessions =
+  OHOS affiche uniquement les sessions PTY de cette application, et non toutes les connexions du système.

@@ -33,11 +33,14 @@
 
 pub extern crate time;
 
+#[cfg(not(target_env = "ohos"))]
 use std::ffi::CString;
 use std::io::Result as IOResult;
 use std::marker::PhantomData;
+#[cfg(not(target_env = "ohos"))]
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
+#[cfg(not(target_env = "ohos"))]
 use std::ptr;
 use std::sync::{Mutex, MutexGuard};
 
@@ -46,16 +49,34 @@ use crate::features::systemd_logind;
 
 pub use self::ut::*;
 
+#[cfg(any(target_env = "ohos", test))]
+mod native_file;
+
+#[cfg(target_env = "ohos")]
+/// Return the application's configured PTY record source on OHOS.
+pub fn default_session_path() -> std::path::PathBuf {
+    native_file::default_path()
+}
+
+#[cfg(target_env = "ohos")]
+/// Read native records, reporting invalid or inaccessible application data.
+pub fn read_session_records(path: impl AsRef<Path>) -> IOResult<Vec<UtmpxRecord>> {
+    native_file::read_path(path.as_ref())
+}
+
 // See the FAQ at https://wiki.musl-libc.org/faq#Q:-Why-is-the-utmp/wtmp-functionality-only-implemented-as-stubs?
 // Musl implements only stubs for the utmp functions, and the libc crate issues a deprecation warning about this.
 // However, calling these stubs is the correct approach to maintain consistent behavior with GNU coreutils.
 #[cfg_attr(any(target_env = "musl", target_env = "ohos"), allow(deprecated))]
+#[cfg(not(target_env = "ohos"))]
 pub use libc::endutxent;
 #[cfg_attr(any(target_env = "musl", target_env = "ohos"), allow(deprecated))]
+#[cfg(not(target_env = "ohos"))]
 pub use libc::getutxent;
 #[cfg(target_os = "freebsd")]
 use libc::setutxdb;
 #[cfg_attr(any(target_env = "musl", target_env = "ohos"), allow(deprecated))]
+#[cfg(not(target_env = "ohos"))]
 pub use libc::setutxent;
 use libc::utmpx;
 #[cfg(any(
@@ -65,6 +86,7 @@ use libc::utmpx;
     target_os = "cygwin"
 ))]
 #[cfg_attr(any(target_env = "musl", target_env = "ohos"), allow(deprecated))]
+#[cfg(not(target_env = "ohos"))]
 pub use libc::utmpxname;
 
 use crate::libc; // import macros from `../../macros.rs`
@@ -81,7 +103,10 @@ macro_rules! chars2string {
 
 #[cfg(target_os = "linux")]
 mod ut {
+    #[cfg(not(target_env = "ohos"))]
     pub static DEFAULT_FILE: &str = "/var/run/utmp";
+    #[cfg(target_env = "ohos")]
+    pub static DEFAULT_FILE: &str = "/data/storage/el2/base/files/terminal/sessions";
 
     #[cfg(target_env = "gnu")]
     pub use libc::__UT_HOSTSIZE as UT_HOSTSIZE;
@@ -327,6 +352,7 @@ impl Utmpx {
     ///
     /// Only one instance of [`UtmpxIter`] may be active at a time. This
     /// function will block as long as one is still active. Beware!
+    #[cfg(not(target_env = "ohos"))]
     pub fn iter_all_records() -> UtmpxIter {
         #[cfg(feature = "feat_systemd_logind")]
         {
@@ -359,6 +385,7 @@ impl Utmpx {
     /// instead of traditional utmp files.
     ///
     /// The same caveats as for [`Utmpx::iter_all_records`] apply.
+    #[cfg(not(target_env = "ohos"))]
     pub fn iter_all_records_from<P: AsRef<Path>>(path: P) -> UtmpxIter {
         #[cfg(feature = "feat_systemd_logind")]
         {
@@ -391,6 +418,21 @@ impl Utmpx {
         }
         iter
     }
+    #[cfg(target_env = "ohos")]
+    pub fn iter_all_records() -> UtmpxIter {
+        Self::iter_all_records_from(native_file::default_path())
+    }
+
+    #[cfg(target_env = "ohos")]
+    pub fn iter_all_records_from<P: AsRef<Path>>(path: P) -> UtmpxIter {
+        let mut iter = UtmpxIter::new();
+        // Retain the legacy iterator's documented error handling. OHOS command
+        // entry points use read_session_records to report malformed/missing data.
+        iter.records = native_file::read_path(path.as_ref())
+            .unwrap_or_default()
+            .into_iter();
+        iter
+    }
 }
 
 // On some systems these functions are not thread-safe. On others they're
@@ -404,6 +446,8 @@ static LOCK: Mutex<()> = Mutex::new(());
 
 /// Iterator of login records
 pub struct UtmpxIter {
+    #[cfg(target_env = "ohos")]
+    records: std::vec::IntoIter<UtmpxRecord>,
     #[allow(dead_code)]
     guard: MutexGuard<'static, ()>,
     /// Ensure UtmpxIter is !Send. Technically redundant because MutexGuard
@@ -422,6 +466,8 @@ impl UtmpxIter {
         Self {
             guard,
             phantom: PhantomData,
+            #[cfg(target_env = "ohos")]
+            records: Vec::new().into_iter(),
             #[cfg(feature = "feat_systemd_logind")]
             systemd_iter: None,
         }
@@ -561,7 +607,11 @@ impl Iterator for UtmpxIter {
             }
         }
 
+        #[cfg(target_env = "ohos")]
+        return self.records.next();
+
         // Traditional utmp path
+        #[cfg(not(target_env = "ohos"))]
         unsafe {
             #[cfg_attr(any(target_env = "musl", target_env = "ohos"), allow(deprecated))]
             let res = getutxent();
@@ -582,6 +632,7 @@ impl Iterator for UtmpxIter {
 
 impl Drop for UtmpxIter {
     fn drop(&mut self) {
+        #[cfg(not(target_env = "ohos"))]
         unsafe {
             #[cfg_attr(any(target_env = "musl", target_env = "ohos"), allow(deprecated))]
             endutxent();

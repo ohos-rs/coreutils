@@ -57,3 +57,6 @@ who-canonicalize-error = failed to canonicalize { $host }
 
 # Platform-specific messages
 who-unsupported-openbsd = unsupported command on OpenBSD
+
+who-about-ohos-sessions =
+  OHOS reports only the application-owned PTY session records, not all system logins.

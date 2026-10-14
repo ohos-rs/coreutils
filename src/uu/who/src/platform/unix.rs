@@ -228,16 +228,33 @@ fn current_tty() -> String {
 
 impl Who {
     fn exec(&mut self) -> UResult<()> {
+        #[cfg(target_env = "ohos")]
+        let default_path = utmpx::default_session_path();
         let f = if self.args.len() == 1 {
             self.args[0].as_ref()
         } else {
-            utmpx::DEFAULT_FILE
+            #[cfg(not(target_env = "ohos"))]
+            {
+                utmpx::DEFAULT_FILE
+            }
+            #[cfg(target_env = "ohos")]
+            {
+                default_path.to_str().ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "session path is not UTF-8",
+                    )
+                })?
+            }
         };
         if self.names_only {
             return self.emit_names(f);
         }
 
+        #[cfg(not(target_env = "ohos"))]
         let records = utmpx::Utmpx::iter_all_records_from(f);
+        #[cfg(target_env = "ohos")]
+        let records = utmpx::read_session_records(f)?.into_iter();
 
         if self.layout.header {
             self.emit_header()?;
@@ -263,7 +280,11 @@ impl Who {
 
     /// The `-q` report: every login name on one line, then the total.
     fn emit_names(&self, path: &str) -> UResult<()> {
-        let users = utmpx::Utmpx::iter_all_records_from(path)
+        #[cfg(not(target_env = "ohos"))]
+        let records = utmpx::Utmpx::iter_all_records_from(path);
+        #[cfg(target_env = "ohos")]
+        let records = utmpx::read_session_records(path)?.into_iter();
+        let users = records
             .filter(UtmpxRecord::is_user_process)
             .map(|ut| ut.user())
             .collect::<Vec<_>>();

@@ -53,3 +53,9 @@ uptime-format-pretty-day = { $day ->
 
 # Load average formatting
 uptime-lib-format-loadavg = load average: { $avg1 }, { $avg5 }, { $avg15 }
+
+uptime-about-ohos-sessions =
+  OHOS reports only the application-owned PTY session records, not all system logins.
+
+uptime-ohos-session-count = { $count } app PTY sessions
+uptime-ohos-sessions-unavailable = app PTY sessions unavailable

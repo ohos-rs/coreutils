@@ -45,6 +45,9 @@ pub fn uu_app() -> Command {
     #[cfg(target_env = "musl")]
     let about = translate!("who-about") + &translate!("who-about-musl-warning");
 
+    #[cfg(target_env = "ohos")]
+    let about = format!("{about}\n\n{}", translate!("who-about-ohos-sessions"));
+
     let cmd = Command::new("who")
         .version(uucore::crate_version!())
         .about(about)

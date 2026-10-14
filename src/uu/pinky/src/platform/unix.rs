@@ -13,7 +13,9 @@ use uucore::entries::{Locate, Passwd};
 use uucore::error::UResult;
 use uucore::libc::S_IWGRP;
 use uucore::translate;
-use uucore::utmpx::{self, Utmpx, UtmpxRecord, time};
+#[cfg(not(target_env = "ohos"))]
+use uucore::utmpx::Utmpx;
+use uucore::utmpx::{self, UtmpxRecord, time};
 
 use std::fmt::{self, Write as _};
 use std::fs::File;
@@ -299,7 +301,11 @@ impl Pinky {
         if self.layout.header {
             writeln!(writer, "{}", self.header_row())?;
         }
-        for ut in Utmpx::iter_all_records() {
+        #[cfg(not(target_env = "ohos"))]
+        let records = Utmpx::iter_all_records();
+        #[cfg(target_env = "ohos")]
+        let records = utmpx::read_session_records(utmpx::default_session_path())?.into_iter();
+        for ut in records {
             if ut.is_user_process()
                 && (self.names.is_empty() || self.names.iter().any(|n| n.as_str() == ut.user()))
             {

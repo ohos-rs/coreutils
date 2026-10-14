@@ -5,3 +5,6 @@ users-about-musl-warning =
     due to musl's stub implementation of utmpx functions.
 users-long-usage = Output who is currently logged in according to FILE.
     If FILE is not specified, use { $default_path }.  /var/log/wtmp as FILE is common.
+
+users-about-ohos-sessions =
+  OHOS reports only the application-owned PTY session records, not all system logins.

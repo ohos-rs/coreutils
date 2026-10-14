@@ -53,3 +53,9 @@ uptime-format-pretty-day = { $day ->
 
 # Formatage de la charge moyenne
 uptime-lib-format-loadavg = charge moyenne : { $avg1 }, { $avg5 }, { $avg15 }
+
+uptime-about-ohos-sessions =
+  OHOS affiche uniquement les sessions PTY de cette application, et non toutes les connexions du système.
+
+uptime-ohos-session-count = { $count } sessions PTY de l’application
+uptime-ohos-sessions-unavailable = sessions PTY de l’application indisponibles

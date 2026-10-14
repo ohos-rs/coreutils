@@ -40,3 +40,6 @@ pinky-plan-label = Plan
 
 # Status messages
 pinky-unsupported-openbsd = unsupported command on OpenBSD
+
+pinky-about-ohos-sessions =
+  OHOS reports only the application-owned PTY session records, not all system logins.

@@ -47,12 +47,15 @@ pub(crate) fn maybe_uptime_from_file(matches: &ArgMatches) -> Option<UResult<()>
 /// `BOOT_TIME` record where utmpx is available (on OpenBSD, from
 /// [`get_uptime`] directly).
 pub(crate) fn system_uptime_seconds() -> UResult<i64> {
-    #[cfg(not(any(target_os = "openbsd", target_os = "android")))]
+    #[cfg(all(
+        not(target_env = "ohos"),
+        not(any(target_os = "openbsd", target_os = "android"))
+    ))]
     {
         let (boot_time, _) = process_utmpx(None);
         get_uptime(boot_time)
     }
-    #[cfg(any(target_os = "openbsd", target_os = "android"))]
+    #[cfg(any(target_env = "ohos", target_os = "openbsd", target_os = "android"))]
     get_uptime(None)
 }
 

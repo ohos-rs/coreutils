@@ -65,6 +65,9 @@ pub fn uu_app() -> Command {
     #[cfg(target_env = "musl")]
     let about = translate!("uptime-about") + &translate!("uptime-about-musl-warning");
 
+    #[cfg(target_env = "ohos")]
+    let about = format!("{about}\n\n{}", translate!("uptime-about-ohos-sessions"));
+
     let cmd = Command::new("uptime")
         .version(uucore::crate_version!())
         .help_template(uucore::localized_help_template("uptime"))
@@ -101,7 +104,22 @@ fn uptime_since() -> UResult<()> {
 fn default_uptime() -> UResult<()> {
     print_time()?;
     print_uptime(None)?;
+    #[cfg(not(target_env = "ohos"))]
     print_nusers(None)?;
+    #[cfg(target_env = "ohos")]
+    {
+        let source = uucore::utmpx::default_session_path();
+        let text = match uucore::utmpx::read_session_records(&source) {
+            Ok(records) => {
+                translate!("uptime-ohos-session-count", "count" => records.iter().filter(|record| record.is_user_process()).count())
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                translate!("uptime-ohos-sessions-unavailable")
+            }
+            Err(error) => return Err(error.into()),
+        };
+        write!(stdout(), "{text}")?;
+    }
     print_loadavg()?;
 
     Ok(())

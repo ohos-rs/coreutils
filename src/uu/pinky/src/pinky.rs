@@ -33,6 +33,9 @@ pub fn uu_app() -> Command {
     #[cfg(target_env = "musl")]
     let about = translate!("pinky-about") + &translate!("pinky-about-musl-warning");
 
+    #[cfg(target_env = "ohos")]
+    let about = format!("{about}\n\n{}", translate!("pinky-about-ohos-sessions"));
+
     let cmd = Command::new("pinky")
         .version(uucore::crate_version!())
         .about(about)

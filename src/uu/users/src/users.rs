@@ -27,7 +27,9 @@ use uucore::translate;
 #[cfg(target_os = "openbsd")]
 use utmp_classic::{UtmpEntry, parse_from_path};
 #[cfg(not(target_os = "openbsd"))]
-use uucore::utmpx::{self, Utmpx};
+use uucore::utmpx;
+#[cfg(all(not(target_os = "openbsd"), not(target_env = "ohos")))]
+use uucore::utmpx::Utmpx;
 
 #[cfg(target_os = "openbsd")]
 const OPENBSD_UTMP_FILE: &str = "/var/run/utmp";
@@ -72,9 +74,17 @@ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
     };
     #[cfg(not(target_os = "openbsd"))]
     {
-        let filename = maybe_file.unwrap_or(utmpx::DEFAULT_FILE.as_ref());
+        #[cfg(target_env = "ohos")]
+        let default_path = utmpx::default_session_path();
+        #[cfg(not(target_env = "ohos"))]
+        let default_path = Path::new(utmpx::DEFAULT_FILE);
+        let filename = maybe_file.unwrap_or(default_path.as_ref());
 
-        users = Utmpx::iter_all_records_from(filename)
+        #[cfg(not(target_env = "ohos"))]
+        let records = Utmpx::iter_all_records_from(filename);
+        #[cfg(target_env = "ohos")]
+        let records = utmpx::read_session_records(filename)?.into_iter();
+        users = records
             .filter(utmpx::UtmpxRecord::is_user_process)
             .map(|ut| ut.user())
             .collect::<Vec<_>>();
@@ -93,6 +103,9 @@ pub fn uu_app() -> Command {
     let about = translate!("users-about");
     #[cfg(target_env = "musl")]
     let about = translate!("users-about") + &translate!("users-about-musl-warning");
+
+    #[cfg(target_env = "ohos")]
+    let about = format!("{about}\n\n{}", translate!("users-about-ohos-sessions"));
 
     Command::new("users")
         .version(uucore::crate_version!())

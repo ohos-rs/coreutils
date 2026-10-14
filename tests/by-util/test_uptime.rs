@@ -340,6 +340,25 @@ fn test_uptime_pretty_print() {
         .stdout_matches(&Regex::new(r"hour|minute").unwrap());
 }
 
+#[test]
+#[cfg(target_env = "ohos")]
+fn test_uptime_boot_clock_does_not_require_a_session_database() {
+    new_ucmd!()
+        .env("UUTILS_OHOS_SESSION_DIR", "/missing-app-session-directory")
+        .arg("--since")
+        .succeeds()
+        .stdout_matches(&Regex::new(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\n$").unwrap());
+    new_ucmd!()
+        .env("UUTILS_OHOS_SESSION_DIR", "/missing-app-session-directory")
+        .arg("--pretty")
+        .succeeds()
+        .stdout_contains("up");
+    new_ucmd!()
+        .env("UUTILS_OHOS_SESSION_DIR", "/missing-app-session-directory")
+        .succeeds()
+        .stdout_contains("app PTY sessions unavailable");
+}
+
 /// Test uptime reliability on macOS with sysctl kern.boottime fallback.
 /// This addresses intermittent failures from issue #3621 by ensuring
 /// the command consistently succeeds when utmpx data is unavailable.
