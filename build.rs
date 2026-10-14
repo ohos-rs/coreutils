@@ -50,8 +50,8 @@ pub fn main() {
                 "chcon" | "runcon" if !(target_os == "linux" || target_os == "android") => {
                     continue;
                 }
-                "default" | "macos" | "unix" | "windows" | "selinux" | "zip" | "clap_complete"
-                | "clap_mangen" | "fluent_syntax" | "openssl" => continue, // common/standard feature names
+                "default" | "macos" | "unix" | "windows" | "ohos" | "selinux" | "zip"
+                | "clap_complete" | "clap_mangen" | "fluent_syntax" | "openssl" => continue, // common/standard feature names
                 "nightly" | "test_unimplemented" | "expensive_tests" | "test_risky_names" => {
                     continue;
                 } // crate-local custom features
@@ -104,6 +104,13 @@ pub fn main() {
         }
     }
     entries.sort_by_key(|(name, _)| *name);
+
+    // Cross packagers cannot execute the target binary to obtain --list.
+    // Generate the same list alongside the map, including aliases such as '['.
+    let mut utilities = File::create(Path::new(&out_dir).join("utilities.txt")).unwrap();
+    for (name, _) in &entries {
+        writeln!(utilities, "{name}").unwrap();
+    }
 
     for (name, value) in entries {
         phf_map.entry(name, value);

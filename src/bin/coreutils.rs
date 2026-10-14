@@ -141,3 +141,57 @@ fn main() {
     }
     exit(1);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn package_list_matches_multicall_map() {
+        let names: Vec<_> = include_str!(concat!(env!("OUT_DIR"), "/utilities.txt"))
+            .lines()
+            .collect();
+        assert_eq!(
+            names,
+            util_map::<std::vec::IntoIter<OsString>>()
+                .keys()
+                .copied()
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[cfg(feature = "feat_os_ohos")]
+    #[test]
+    fn ohos_feature_includes_packaged_session_and_buffering_tools() {
+        let map = util_map::<std::vec::IntoIter<OsString>>();
+        for name in [
+            "[", "cat", "chmod", "env", "ls", "mktemp", "stty", "tty", "uptime", "who", "users",
+            "pinky", "stdbuf",
+        ] {
+            assert!(map.contains_key(name), "missing {name}");
+        }
+    }
+
+    #[cfg(feature = "feat_os_ohos")]
+    #[test]
+    fn pty_probe_only_invokes_compiled_multicall_commands() {
+        let script = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/util/ohos/pty-smoke.sh"
+        ));
+        let map = util_map::<std::vec::IntoIter<OsString>>();
+        for invocation in script.split("\"$cu\" ").skip(1) {
+            if let Some(command) = invocation.split_whitespace().next()
+                && command
+                    .as_bytes()
+                    .first()
+                    .is_some_and(u8::is_ascii_lowercase)
+            {
+                assert!(
+                    map.contains_key(command),
+                    "unpackaged PTY command: {command}"
+                );
+            }
+        }
+    }
+}

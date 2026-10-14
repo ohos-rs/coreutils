@@ -1,0 +1,554 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 1970909..2d72eb9 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -37,6 +37,7 @@ members = [
+     "examples/terminal",
+     "examples/webview",
+     "examples/demos",
++    "examples/coreutils_terminal",
+ ]
+ # `app/` is an OpenHarmony application shell (ArkTS + hvigor), not a Rust crate.
+ exclude = ["app"]
+diff --git a/examples/terminal/Cargo.toml b/examples/terminal/Cargo.toml
+index 563e8fa..5ae23be 100644
+--- a/examples/terminal/Cargo.toml
++++ b/examples/terminal/Cargo.toml
+@@ -16,3 +16,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "net"
+ # SSH host lives in the example, not in arkit_terminal.
+ russh.workspace = true
+ libc.workspace = true
++ohos-hilog-binding = { workspace = true, optional = true }
++
++[features]
++coreutils-hnp = ["dep:ohos-hilog-binding"]
+diff --git a/examples/terminal/src/lib.rs b/examples/terminal/src/lib.rs
+index a89949b..04970a8 100644
+--- a/examples/terminal/src/lib.rs
++++ b/examples/terminal/src/lib.rs
+@@ -135,22 +135,42 @@ impl HostState {
+             .unwrap_or_default()
+     }
+
+-    fn observe_pty_probe(&mut self, bytes: &[u8]) -> bool {
++    fn observe_pty_probe(&mut self, bytes: &[u8]) -> Option<bool> {
+         let Some(probe) = &mut self.pty_probe else {
+-            return false;
++            return None;
+         };
+         probe.extend_from_slice(bytes);
+-        if probe
+-            .windows(b"ARKIT_REAL_PTY".len())
+-            .any(|part| part == b"ARKIT_REAL_PTY")
++        let marker: &[u8] = if cfg!(feature = "coreutils-hnp") {
++            b"COREUTILS_HNP_PASS"
++        } else {
++            b"ARKIT_REAL_PTY"
++        };
++        let passed = probe.windows(marker.len()).any(|part| part == marker);
++        #[cfg(all(target_env = "ohos", feature = "coreutils-hnp"))]
+         {
++            let _ = std::fs::write(
++                "/data/storage/el2/base/files/terminal/coreutils-hnp-transcript.txt",
++                &*probe,
++            );
++        }
++        let failed = probe
++            .windows(b"COREUTILS_HNP_FAIL".len())
++            .any(|part| part == b"COREUTILS_HNP_FAIL")
++            || probe
++                .windows(b"COREUTILS_HNP_EXIT".len())
++                .any(|part| part == b"COREUTILS_HNP_EXIT");
++        if passed || failed {
++            #[cfg(all(target_env = "ohos", feature = "coreutils-hnp"))]
++            for line in String::from_utf8_lossy(probe).lines() {
++                ohos_hilog_binding::info(format!("coreutils-hnp: {}", line.replace('%', "%%")));
++            }
+             self.pty_probe = None;
+-            return true;
++            return Some(passed);
+         }
+-        if probe.len() > 128 {
+-            probe.drain(..probe.len() - 128);
++        if probe.len() > 65536 {
++            probe.drain(..probe.len() - 65536);
+         }
+-        false
++        None
+     }
+ }
+
+@@ -227,8 +247,17 @@ pub fn TerminalPage() -> Element {
+                             PtyEvent::Output(bytes) => {
+                                 let passed = host.borrow_mut().observe_pty_probe(&bytes);
+                                 controller.feed_vt(&bytes);
+-                                if passed {
+-                                    status.set("PTY probe passed · real shell output".into());
++                                if let Some(passed) = passed {
++                                    status.set(
++                                        if !passed {
++                                            "HNP probe failed · see PTY output"
++                                        } else if cfg!(feature = "coreutils-hnp") {
++                                            "HNP probe passed · app sandbox PTY"
++                                        } else {
++                                            "PTY probe passed · real shell output"
++                                        }
++                                        .into(),
++                                    );
+                                 }
+                             }
+                             PtyEvent::Closed(reason) => {
+@@ -437,9 +466,19 @@ pub fn TerminalPage() -> Element {
+                 return;
+             }
+             host.pty_probe = Some(Vec::new());
+-            let error = host.write_input(
+-                b"test -t 0 && tty && pwd && ls -la && printf 'PTY_PIPE_%s\\n' OK | cat && printf 'ARKIT_REAL_%s\\n' PTY\r",
+-            );
++            #[cfg(feature = "coreutils-hnp")]
++            let input = {
++                let script = "/data/storage/el2/base/files/terminal/coreutils-hnp-smoke.sh";
++                if let Err(error) = std::fs::write(script, include_bytes!("coreutils-hnp-smoke.sh"))
++                {
++                    status.set(format!("HNP probe setup failed: {error}"));
++                    return;
++                }
++                format!("export PATH=/data/service/hnp/bin:$PATH; export HNP_BIN=/data/service/hnp/bin; ( . {} ); rc=$?; if [ $rc -ne 0 ]; then printf 'COREUTILS_HNP_%s:%s\\n' EXIT $rc; fi\r", script).into_bytes()
++            };
++            #[cfg(not(feature = "coreutils-hnp"))]
++            let input = b"test -t 0 && tty && pwd && ls -la && printf 'PTY_PIPE_%s\\n' OK | cat && printf 'ARKIT_REAL_%s\\n' PTY\r".to_vec();
++            let error = host.write_input(&input);
+             if error.is_empty() {
+                 status.set("PTY probe waiting for shell output…".into());
+             } else {
+@@ -575,7 +614,7 @@ pub fn TerminalPage() -> Element {
+                 margin_bottom: 8.0,
+                 { chip("SSH connect", connect_ssh) }
+                 { chip("Local PTY", connect_pty) }
+-                { chip("PTY probe", probe_pty) }
++                { chip(if cfg!(feature = "coreutils-hnp") { "HNP probe" } else { "PTY probe" }, probe_pty) }
+                 { chip("disconnect", disconnect) }
+                 { chip("local banner", {
+                     let controller = controller.clone();
+diff --git a/examples/terminal/src/local_pty.rs b/examples/terminal/src/local_pty.rs
+index c55ad16..a8cd910 100644
+--- a/examples/terminal/src/local_pty.rs
++++ b/examples/terminal/src/local_pty.rs
+@@ -6,13 +6,19 @@ use std::fs::File;
+ use std::io::{self, Read, Write};
+ use std::os::fd::{AsRawFd, FromRawFd};
+ use std::os::unix::process::CommandExt;
++#[cfg(any(target_env = "ohos", test))]
++use std::path::Path;
+ use std::path::PathBuf;
+ use std::process::{Child, Command, Stdio};
+ use std::sync::atomic::{AtomicBool, Ordering};
+-use std::sync::{mpsc, Arc};
++use std::sync::{Arc, mpsc};
+ use std::thread;
+ use std::time::Duration;
+
++#[cfg(any(test, all(target_env = "ohos", feature = "coreutils-hnp")))]
++#[path = "ohos_sessions.rs"]
++mod ohos_sessions;
++
+ #[derive(Debug)]
+ pub enum PtyEvent {
+     Started(u32),
+@@ -76,6 +82,79 @@ impl LocalPty {
+     }
+ }
+
++#[cfg(any(target_env = "ohos", test))]
++fn configure_ohos_shell(command: &mut Command, home: &Path, tmp: &Path, hnp_bin: Option<&Path>) {
++    let path = hnp_bin.map_or_else(
++        || "/system/bin:/vendor/bin".to_string(),
++        |bin| format!("{}:/system/bin:/vendor/bin", bin.display()),
++    );
++    command
++        .current_dir(home)
++        .env("HOME", home)
++        .env("TMPDIR", tmp)
++        .env("PATH", path);
++    if let Some(bin) = hnp_bin {
++        command.env("HNP_BIN", bin).env("EXPECT_OHOS_SANDBOX", "1");
++        command.env("UUTILS_OHOS_SESSION_DIR", home.join("sessions"));
++    }
++}
++
++#[cfg(test)]
++mod hnp_environment_tests {
++    #[test]
++    fn closing_real_pty_removes_its_session_record() {
++        let mut process = PtyProcess::start(PathBuf::from("/bin/sh"), 80, 24).unwrap();
++        let pid = process.child.id();
++        let directory = std::env::temp_dir().join(format!(
++            "arkit-pty-session-lifecycle-{}",
++            std::process::id()
++        ));
++        process._session = Some(
++            ohos_sessions::SessionGuard::register(
++                &directory,
++                pid,
++                "/dev/test-pty",
++                "test",
++                1700000100,
++                1700000000,
++            )
++            .unwrap(),
++        );
++        let path = directory.join(format!("{pid}.utmpx"));
++        assert!(path.exists());
++        drop(process);
++        assert!(!path.exists());
++        // SAFETY: signal zero only checks whether this child is still alive.
++        assert_eq!(unsafe { libc::kill(pid as i32, 0) }, -1);
++        std::fs::remove_dir(directory).unwrap();
++    }
++
++    use super::*;
++
++    #[test]
++    fn public_hnp_precedes_system_commands_and_temp_is_app_owned() {
++        let mut command = Command::new("/system/bin/sh");
++        let home = Path::new("/data/storage/el2/base/files/terminal");
++        let tmp = Path::new("/data/storage/el2/base/cache/terminal");
++        configure_ohos_shell(
++            &mut command,
++            home,
++            tmp,
++            Some(Path::new("/data/service/hnp/bin")),
++        );
++        let env: std::collections::HashMap<_, _> = command.get_envs().collect();
++        assert_eq!(command.get_current_dir(), Some(home));
++        assert_eq!(env[std::ffi::OsStr::new("HOME")], Some(home.as_os_str()));
++        assert_eq!(env[std::ffi::OsStr::new("TMPDIR")], Some(tmp.as_os_str()));
++        assert_eq!(
++            env[std::ffi::OsStr::new("PATH")],
++            Some(std::ffi::OsStr::new(
++                "/data/service/hnp/bin:/system/bin:/vendor/bin"
++            ))
++        );
++    }
++}
++
+ impl Drop for LocalPty {
+     fn drop(&mut self) {
+         // Cancellation cannot sit behind a large paste in the input queue.
+@@ -86,6 +165,8 @@ impl Drop for LocalPty {
+ struct PtyProcess {
+     master: Option<File>,
+     child: Child,
++    #[cfg(any(test, all(target_env = "ohos", feature = "coreutils-hnp")))]
++    _session: Option<ohos_sessions::SessionGuard>,
+ }
+
+ impl PtyProcess {
+@@ -130,6 +211,20 @@ impl PtyProcess {
+             }
+         }
+         let mut command = Command::new(shell);
++        #[cfg(all(target_env = "ohos", feature = "coreutils-hnp"))]
++        let tty = {
++            let mut name = [0; 128];
++            // SAFETY: the live slave fd and writable name buffer are valid.
++            let result =
++                unsafe { libc::ttyname_r(slave.as_raw_fd(), name.as_mut_ptr(), name.len()) };
++            if result != 0 {
++                return Err(io::Error::from_raw_os_error(result));
++            }
++            // SAFETY: successful ttyname_r writes a NUL-terminated pathname.
++            unsafe { std::ffi::CStr::from_ptr(name.as_ptr()) }
++                .to_string_lossy()
++                .into_owned()
++        };
+         command
+             .arg("-i")
+             .env("TERM", "xterm-256color")
+@@ -142,11 +237,22 @@ impl PtyProcess {
+             // are not readable by an ordinary app. Start in app-owned storage
+             // so commands such as `ls`, redirection and file creation work.
+             let home = PathBuf::from("/data/storage/el2/base/files/terminal");
++            let tmp = PathBuf::from("/data/storage/el2/base/cache/terminal");
+             std::fs::create_dir_all(&home)?;
+-            command
+-                .current_dir(&home)
+-                .env("HOME", &home)
+-                .env("PATH", "/system/bin:/vendor/bin");
++            std::fs::create_dir_all(&tmp)?;
++            #[cfg(feature = "coreutils-hnp")]
++            let hnp_bin = Some(Path::new("/data/service/hnp/bin"));
++            #[cfg(not(feature = "coreutils-hnp"))]
++            let hnp_bin = None;
++            if let Some(bin) = hnp_bin {
++                if !bin.join("coreutils").is_file() {
++                    return Err(io::Error::new(
++                        io::ErrorKind::NotFound,
++                        "public coreutils HNP is not installed",
++                    ));
++                }
++            }
++            configure_ohos_shell(&mut command, &home, &tmp, hnp_bin);
+         }
+         // SAFETY: this callback runs between fork and exec and only invokes
+         // async-signal-safe system operations. stdin already points at the
+@@ -159,10 +265,51 @@ impl PtyProcess {
+                 Ok(())
+             });
+         }
++        #[cfg(all(target_env = "ohos", feature = "coreutils-hnp"))]
++        let mut child = command.spawn()?;
++        #[cfg(not(all(target_env = "ohos", feature = "coreutils-hnp")))]
+         let child = command.spawn()?;
++        #[cfg(all(target_env = "ohos", feature = "coreutils-hnp"))]
++        let session = {
++            let mut startup = std::mem::MaybeUninit::<libc::timespec>::uninit();
++            // SAFETY: clock_gettime initializes the supplied timespec on success.
++            if unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, startup.as_mut_ptr()) } != 0 {
++                let error = io::Error::last_os_error();
++                let _ = child.kill();
++                let _ = child.wait();
++                return Err(error);
++            }
++            // SAFETY: the call above succeeded.
++            let startup = unsafe { startup.assume_init() };
++            let now = std::time::SystemTime::now()
++                .duration_since(std::time::UNIX_EPOCH)
++                .map_err(io::Error::other)?
++                .as_secs() as i64;
++            // SAFETY: getuid has no pointer arguments or preconditions.
++            let user = unsafe { libc::getuid() }.to_string();
++            match ohos_sessions::SessionGuard::register(
++                Path::new("/data/storage/el2/base/files/terminal/sessions"),
++                child.id(),
++                &tty,
++                &user,
++                now,
++                now - startup.tv_sec,
++            ) {
++                Ok(session) => session,
++                Err(error) => {
++                    let _ = child.kill();
++                    let _ = child.wait();
++                    return Err(error);
++                }
++            }
++        };
+         let process = Self {
+             master: Some(master),
+             child,
++            #[cfg(all(target_env = "ohos", feature = "coreutils-hnp"))]
++            _session: Some(session),
++            #[cfg(all(test, not(all(target_env = "ohos", feature = "coreutils-hnp"))))]
++            _session: None,
+         };
+         // SAFETY: the owned master fd is live; preserve existing status flags.
+         let flags = unsafe { libc::fcntl(process.master_fd(), libc::F_GETFL) };
+diff --git a/scripts/test-terminal-host.py b/scripts/test-terminal-host.py
+index 2e1594a..4f3676c 100644
+--- a/scripts/test-terminal-host.py
++++ b/scripts/test-terminal-host.py
+@@ -31,6 +31,7 @@ class TerminalHostTests:
+             (project / "Cargo.toml").write_text(
+                 '[package]\nname = "arkit-terminal-host-tests"\n'
+                 'version = "0.0.0"\nedition = "2021"\n'
++                '[features]\ncoreutils-hnp = []\n'
+                 '[dependencies]\n'
+                 f'libc = {self.quote(self.libc_version)}\n'
+                 'arkit_prelude = { path = '
+diff --git a/examples/coreutils_terminal/Cargo.toml b/examples/coreutils_terminal/Cargo.toml
+new file mode 100644
+index 0000000..21bd0c9
+--- /dev/null
++++ b/examples/coreutils_terminal/Cargo.toml
+@@ -0,0 +1,19 @@
++[package]
++name = "coreutils_terminal"
++version.workspace = true
++edition.workspace = true
++rust-version.workspace = true
++license.workspace = true
++publish = false
++
++[lib]
++crate-type = ["cdylib"]
++
++[dependencies]
++arkit = { workspace = true, features = ["terminal"] }
++terminal_example = { path = "../terminal", features = ["coreutils-hnp"] }
++napi-ohos.workspace = true
++napi-derive-ohos.workspace = true
++
++[build-dependencies]
++napi-build-ohos.workspace = true
+diff --git a/examples/coreutils_terminal/build.rs b/examples/coreutils_terminal/build.rs
+new file mode 100644
+index 0000000..a6e4623
+--- /dev/null
++++ b/examples/coreutils_terminal/build.rs
+@@ -0,0 +1,3 @@
++fn main() {
++    napi_build_ohos::setup();
++}
+diff --git a/examples/coreutils_terminal/src/lib.rs b/examples/coreutils_terminal/src/lib.rs
+new file mode 100644
+index 0000000..cea8386
+--- /dev/null
++++ b/examples/coreutils_terminal/src/lib.rs
+@@ -0,0 +1,6 @@
++use arkit::prelude::*;
++
++#[entry]
++fn app() -> Element {
++    rsx! { terminal_example::TerminalPage {} }
++}
+diff --git a/examples/terminal/src/ohos_sessions.rs b/examples/terminal/src/ohos_sessions.rs
+new file mode 100644
+index 0000000..f459c7c
+--- /dev/null
++++ b/examples/terminal/src/ohos_sessions.rs
+@@ -0,0 +1,144 @@
++//! Application-owned records for PTYs that this terminal actually starts.
++//! The native utmpx layout is shared with the OHOS coreutils file reader.
++
++use std::fs::{File, OpenOptions};
++use std::io::{self, Write};
++use std::os::unix::fs::OpenOptionsExt;
++use std::path::{Path, PathBuf};
++
++pub(super) struct SessionGuard {
++    path: PathBuf,
++}
++
++fn put_string(field: &mut [libc::c_char], value: &str) -> io::Result<()> {
++    if value.len() >= field.len() || value.as_bytes().contains(&0) {
++        return Err(io::Error::new(
++            io::ErrorKind::InvalidInput,
++            "PTY record field is too long",
++        ));
++    }
++    for (dest, byte) in field.iter_mut().zip(value.bytes()) {
++        *dest = byte as _;
++    }
++    Ok(())
++}
++
++fn write_record(
++    file: &mut File,
++    kind: i16,
++    pid: i32,
++    tty: &str,
++    user: &str,
++    seconds: i64,
++) -> io::Result<()> {
++    let mut storage = std::mem::MaybeUninit::<libc::utmpx>::zeroed();
++    // SAFETY: initialize the record's bytes, including padding, and write fields
++    // in place. No structure move may discard padding before serialization.
++    unsafe {
++        let record = storage.as_mut_ptr();
++        (*record).ut_type = kind;
++        (*record).ut_pid = pid;
++        (*record).ut_tv.tv_sec = seconds.try_into().map_err(|_| {
++            io::Error::new(
++                io::ErrorKind::InvalidInput,
++                "PTY timestamp exceeds native utmpx range",
++            )
++        })?;
++        put_string(&mut (*record).ut_line, tty)?;
++        put_string(&mut (*record).ut_user, user)?;
++        file.write_all(std::slice::from_raw_parts(
++            record.cast::<u8>(),
++            size_of::<libc::utmpx>(),
++        ))
++    }
++}
++
++impl SessionGuard {
++    pub(super) fn register(
++        directory: &Path,
++        pid: u32,
++        tty: &str,
++        user: &str,
++        login: i64,
++        boot: i64,
++    ) -> io::Result<Self> {
++        std::fs::create_dir_all(directory)?;
++        let path = directory.join(format!("{pid}.utmpx"));
++        let temporary = directory.join(format!(".{pid}.tmp"));
++        let result = (|| {
++            let mut file = OpenOptions::new()
++                .write(true)
++                .create_new(true)
++                .mode(0o600)
++                .custom_flags(libc::O_NOFOLLOW)
++                .open(&temporary)?;
++            write_record(&mut file, libc::BOOT_TIME, 0, "", "", boot)?;
++            write_record(
++                &mut file,
++                libc::USER_PROCESS,
++                pid.try_into().map_err(|_| {
++                    io::Error::new(io::ErrorKind::InvalidInput, "PTY PID exceeds native range")
++                })?,
++                tty.trim_start_matches("/dev/"),
++                user,
++                login,
++            )?;
++            file.sync_all()?;
++            std::fs::rename(&temporary, &path)?;
++            Ok(Self { path })
++        })();
++        if result.is_err() {
++            let _ = std::fs::remove_file(&temporary);
++        }
++        result
++    }
++}
++
++impl Drop for SessionGuard {
++    fn drop(&mut self) {
++        let _ = std::fs::remove_file(&self.path);
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::os::unix::fs::PermissionsExt;
++
++    #[test]
++    fn records_real_pid_with_private_mode_and_removes_it_on_close() {
++        let directory =
++            std::env::temp_dir().join(format!("arkit-session-test-{}", std::process::id()));
++        std::fs::create_dir_all(&directory).unwrap();
++        let guard = SessionGuard::register(
++            &directory,
++            std::process::id(),
++            "/dev/pts/7",
++            "1234",
++            1700000100,
++            1700000000,
++        )
++        .unwrap();
++        assert_eq!(
++            std::fs::metadata(&guard.path).unwrap().permissions().mode() & 0o777,
++            0o600
++        );
++        let bytes = std::fs::read(&guard.path).unwrap();
++        assert_eq!(bytes.len(), 2 * size_of::<libc::utmpx>());
++        // SAFETY: read the complete integer-and-array record without alignment requirements.
++        let record = unsafe {
++            std::ptr::read_unaligned(
++                bytes[size_of::<libc::utmpx>()..]
++                    .as_ptr()
++                    .cast::<libc::utmpx>(),
++            )
++        };
++        assert_eq!(record.ut_pid, std::process::id() as i32);
++        assert_eq!(record.ut_type, libc::USER_PROCESS);
++        assert_eq!(record.ut_tv.tv_sec, 1700000100);
++        let path = guard.path.clone();
++        drop(guard);
++        assert!(!path.exists());
++        std::fs::remove_dir(&directory).unwrap();
++    }
++}

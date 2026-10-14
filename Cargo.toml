@@ -403,6 +403,7 @@ default = ["feat_common_core", "feat_diagnostics"]
 ## OS feature shortcodes
 unix = ["feat_os_unix"]
 windows = ["feat_os_windows"]
+ohos = ["feat_os_ohos"]
 ## project-specific feature shortcodes
 expensive_tests = []
 # Opt-in: use OpenSSL (libcrypto) for md5/sha1/sha2-family digests in the
@@ -620,6 +621,29 @@ feat_os_unix_android = [
   "feat_Tier1",
   #
   "feat_require_unix",
+]
+# OHOS uses app-owned PTY records instead of absent libc utmpx entry points,
+# and ships libstdbuf as a signed HNP library instead of extracting it at runtime.
+feat_os_ohos = [
+  "feat_common_core",
+  "feat_require_unix_core",
+  "df",
+  "du",
+  "env",
+  "hostname",
+  "kill",
+  "nohup",
+  "nproc",
+  "more",
+  "sync",
+  "timeout",
+  "whoami",
+  "uptime",
+  "who",
+  "users",
+  "pinky",
+  "stdbuf",
+  "feat_external_libstdbuf",
 ]
 ## feature sets with requirements (restricting cross-platform availability)
 #

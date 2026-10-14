@@ -43,7 +43,7 @@ use uucore::parser::shortcut_value_parser::ShortcutValueParser;
 /// `try_system()` is useless on OHOS because both `/etc/localtime` and
 /// the zoneinfo dirs are absent.
 #[cfg(target_env = "ohos")]
-fn ohos_system_zone() -> jiff::tz::TimeZone {
+fn ohos_system_zone() -> TimeZone {
     use core::ffi::{CStr, c_char};
 
     #[link(name = "time_service_ndk")]
@@ -51,19 +51,21 @@ fn ohos_system_zone() -> jiff::tz::TimeZone {
         fn OH_TimeService_GetTimeZone(tz: *mut c_char, len: u32) -> i32;
     }
     let mut buf = [0u8; 64];
-    let rc = unsafe { OH_TimeService_GetTimeZone(buf.as_mut_ptr() as *mut c_char, 64) };
+    // SAFETY: buf is writable for the length passed to the TimeService API.
+    let rc = unsafe { OH_TimeService_GetTimeZone(buf.as_mut_ptr().cast::<c_char>(), 64) };
     if rc != 0 {
-        return jiff::tz::TimeZone::UTC;
+        return TimeZone::UTC;
     }
-    let id = unsafe { CStr::from_ptr(buf.as_ptr() as *const c_char) }
+    // SAFETY: a successful TimeService call returns a NUL-terminated zone ID.
+    let id = unsafe { CStr::from_ptr(buf.as_ptr().cast::<c_char>()) }
         .to_string_lossy()
         .into_owned();
-    if let Some((name, tzif)) = jiff_tzdb::get(&id) {
-        if let Ok(tz) = jiff::tz::TimeZone::tzif(name, tzif) {
-            return tz;
-        }
+    if let Some((name, tzif)) = jiff_tzdb::get(&id)
+        && let Ok(tz) = TimeZone::tzif(name, tzif)
+    {
+        return tz;
     }
-    jiff::tz::TimeZone::UTC
+    TimeZone::UTC
 }
 
 // Options
