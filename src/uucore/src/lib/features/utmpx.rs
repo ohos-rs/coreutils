@@ -33,16 +33,16 @@
 
 pub extern crate time;
 
-#[cfg(not(target_env = "ohos"))]
-use std::ffi::CString;
 use std::io::Result as IOResult;
-use std::marker::PhantomData;
-#[cfg(not(target_env = "ohos"))]
-use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 #[cfg(not(target_env = "ohos"))]
-use std::ptr;
-use std::sync::{Mutex, MutexGuard};
+use std::{
+    ffi::CString,
+    marker::PhantomData,
+    os::unix::ffi::OsStrExt,
+    ptr,
+    sync::{Mutex, MutexGuard},
+};
 
 #[cfg(feature = "feat_systemd_logind")]
 use crate::features::systemd_logind;
@@ -67,17 +67,8 @@ pub fn read_session_records(path: impl AsRef<Path>) -> IOResult<Vec<UtmpxRecord>
 // See the FAQ at https://wiki.musl-libc.org/faq#Q:-Why-is-the-utmp/wtmp-functionality-only-implemented-as-stubs?
 // Musl implements only stubs for the utmp functions, and the libc crate issues a deprecation warning about this.
 // However, calling these stubs is the correct approach to maintain consistent behavior with GNU coreutils.
-#[cfg_attr(any(target_env = "musl", target_env = "ohos"), allow(deprecated))]
-#[cfg(not(target_env = "ohos"))]
-pub use libc::endutxent;
-#[cfg_attr(any(target_env = "musl", target_env = "ohos"), allow(deprecated))]
-#[cfg(not(target_env = "ohos"))]
-pub use libc::getutxent;
 #[cfg(target_os = "freebsd")]
 use libc::setutxdb;
-#[cfg_attr(any(target_env = "musl", target_env = "ohos"), allow(deprecated))]
-#[cfg(not(target_env = "ohos"))]
-pub use libc::setutxent;
 use libc::utmpx;
 #[cfg(any(
     target_vendor = "apple",
@@ -85,9 +76,12 @@ use libc::utmpx;
     target_os = "netbsd",
     target_os = "cygwin"
 ))]
-#[cfg_attr(any(target_env = "musl", target_env = "ohos"), allow(deprecated))]
+#[cfg_attr(target_env = "musl", allow(deprecated))]
 #[cfg(not(target_env = "ohos"))]
 pub use libc::utmpxname;
+#[cfg_attr(target_env = "musl", allow(deprecated))]
+#[cfg(not(target_env = "ohos"))]
+pub use libc::{endutxent, getutxent, setutxent};
 
 use crate::libc; // import macros from `../../macros.rs`
 
@@ -106,7 +100,7 @@ mod ut {
     #[cfg(not(target_env = "ohos"))]
     pub static DEFAULT_FILE: &str = "/var/run/utmp";
     #[cfg(target_env = "ohos")]
-    pub static DEFAULT_FILE: &str = "/data/storage/el2/base/files/terminal/sessions";
+    pub static DEFAULT_FILE: &str = "/data/storage/el2/base/files/coreutils/sessions";
 
     #[cfg(target_env = "gnu")]
     pub use libc::__UT_HOSTSIZE as UT_HOSTSIZE;
@@ -367,7 +361,7 @@ impl Utmpx {
                 // This can technically fail, and it would be nice to detect that,
                 // but it doesn't return anything so we'd have to do nasty things
                 // with errno.
-                #[cfg_attr(any(target_env = "musl", target_env = "ohos"), allow(deprecated))]
+                #[cfg_attr(target_env = "musl", allow(deprecated))]
                 setutxent();
             }
             iter
@@ -410,10 +404,10 @@ impl Utmpx {
             // So this function is pretty crazy and we don't try to detect errors.
             // Not much we can do besides pray.
             #[cfg(not(target_os = "freebsd"))]
-            #[cfg_attr(any(target_env = "musl", target_env = "ohos"), allow(deprecated))]
+            #[cfg_attr(target_env = "musl", allow(deprecated))]
             utmpxname(path.as_ptr());
 
-            #[cfg_attr(any(target_env = "musl", target_env = "ohos"), allow(deprecated))]
+            #[cfg_attr(target_env = "musl", allow(deprecated))]
             setutxent();
         }
         iter
@@ -425,13 +419,11 @@ impl Utmpx {
 
     #[cfg(target_env = "ohos")]
     pub fn iter_all_records_from<P: AsRef<Path>>(path: P) -> UtmpxIter {
-        let mut iter = UtmpxIter::new();
         // Retain the legacy iterator's documented error handling. OHOS command
         // entry points use read_session_records to report malformed/missing data.
-        iter.records = native_file::read_path(path.as_ref())
+        native_file::read_path(path.as_ref())
             .unwrap_or_default()
-            .into_iter();
-        iter
+            .into_iter()
     }
 }
 
@@ -442,12 +434,16 @@ impl Utmpx {
 // I believe the only technical memory unsafety that could happen is a data
 // race while copying the data out of the pointer returned by getutxent(), but
 // ordinary race conditions are also very much possible.
+#[cfg(not(target_env = "ohos"))]
 static LOCK: Mutex<()> = Mutex::new(());
 
+/// Iterator of independently loaded application session records.
+#[cfg(target_env = "ohos")]
+pub type UtmpxIter = std::vec::IntoIter<UtmpxRecord>;
+
 /// Iterator of login records
+#[cfg(not(target_env = "ohos"))]
 pub struct UtmpxIter {
-    #[cfg(target_env = "ohos")]
-    records: std::vec::IntoIter<UtmpxRecord>,
     #[allow(dead_code)]
     guard: MutexGuard<'static, ()>,
     /// Ensure UtmpxIter is !Send. Technically redundant because MutexGuard
@@ -457,6 +453,7 @@ pub struct UtmpxIter {
     systemd_iter: Option<systemd_logind::SystemdUtmpxIter>,
 }
 
+#[cfg(not(target_env = "ohos"))]
 impl UtmpxIter {
     fn new() -> Self {
         // PoisonErrors can safely be ignored
@@ -466,8 +463,6 @@ impl UtmpxIter {
         Self {
             guard,
             phantom: PhantomData,
-            #[cfg(target_env = "ohos")]
-            records: Vec::new().into_iter(),
             #[cfg(feature = "feat_systemd_logind")]
             systemd_iter: None,
         }
@@ -596,6 +591,7 @@ impl UtmpxRecord {
     }
 }
 
+#[cfg(not(target_env = "ohos"))]
 impl Iterator for UtmpxIter {
     type Item = UtmpxRecord;
     fn next(&mut self) -> Option<Self::Item> {
@@ -607,13 +603,9 @@ impl Iterator for UtmpxIter {
             }
         }
 
-        #[cfg(target_env = "ohos")]
-        return self.records.next();
-
         // Traditional utmp path
-        #[cfg(not(target_env = "ohos"))]
         unsafe {
-            #[cfg_attr(any(target_env = "musl", target_env = "ohos"), allow(deprecated))]
+            #[cfg_attr(target_env = "musl", allow(deprecated))]
             let res = getutxent();
             if res.is_null() {
                 None
@@ -630,11 +622,11 @@ impl Iterator for UtmpxIter {
     }
 }
 
+#[cfg(not(target_env = "ohos"))]
 impl Drop for UtmpxIter {
     fn drop(&mut self) {
-        #[cfg(not(target_env = "ohos"))]
         unsafe {
-            #[cfg_attr(any(target_env = "musl", target_env = "ohos"), allow(deprecated))]
+            #[cfg_attr(target_env = "musl", allow(deprecated))]
             endutxent();
         }
     }

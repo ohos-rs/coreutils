@@ -36,8 +36,7 @@ pub(super) fn read_file(path: &Path) -> io::Result<Vec<UtmpxRecord>> {
 #[cfg(target_env = "ohos")]
 pub(super) fn default_path() -> PathBuf {
     std::env::var_os("UUTILS_OHOS_SESSION_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(super::DEFAULT_FILE))
+        .map_or_else(|| PathBuf::from(super::DEFAULT_FILE), PathBuf::from)
 }
 
 pub(super) fn read_path(path: &Path) -> io::Result<Vec<UtmpxRecord>> {
@@ -135,6 +134,23 @@ mod tests {
                 .unwrap();
             assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
         }
+    }
+
+    #[cfg(target_env = "ohos")]
+    #[test]
+    fn file_iterators_can_be_active_at_the_same_time() {
+        let path = std::env::temp_dir().join(format!(
+            "uucore-independent-records-{}.utmpx",
+            std::process::id()
+        ));
+        std::fs::write(&path, record_bytes(std::process::id() as i32)).unwrap();
+        let mut first = Utmpx::iter_all_records_from(&path);
+        let mut second = Utmpx::iter_all_records_from(&path);
+        assert_eq!(first.next().unwrap().user(), "a");
+        assert_eq!(second.next().unwrap().user(), "a");
+        assert!(first.next().is_none());
+        assert!(second.next().is_none());
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
