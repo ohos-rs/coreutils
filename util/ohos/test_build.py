@@ -2,12 +2,13 @@
 """Regression tests for HNP links, attribution and executable permissions."""
 
 import json
+import shlex
 from pathlib import Path
 import tempfile
 import unittest
 import zipfile
 
-from build import normalize_archive, stage_package, verify_archive
+from build import TARGETS, normalize_archive, stage_package, toolchain_environment, verify_archive
 from attach_hnp import attach
 
 
@@ -21,6 +22,29 @@ class HnpTests(unittest.TestCase):
         self.binary.chmod(0o700)
         self.stage = self.root / "uutils-coreutils"
         self.utilities = ["[", "cat", "ls", "test"]
+
+    def test_toolchain_matches_sdk_abi_and_exports_sdk_root(self):
+        sdk = self.root / "SDK with spaces"
+        for arch, (target, clang_target) in TARGETS.items():
+            with self.subTest(arch=arch):
+                tools = self.root / arch
+                env = toolchain_environment(sdk, arch, tools)
+                self.assertEqual(env["OHOS_NDK_HOME"], str(sdk))
+                suffix = target.replace("-", "_")
+                self.assertEqual(env["CC_" + suffix], str(tools / "clang"))
+                for compiler in ("clang", "clang++"):
+                    command = shlex.split((tools / compiler).read_text().splitlines()[1])
+                    self.assertEqual(command[1], str(sdk / "native/llvm/bin" / compiler))
+                    self.assertIn("--target=" + clang_target, command)
+                    self.assertIn("--sysroot=" + str(sdk / "native/sysroot"), command)
+                    self.assertIn("-D__MUSL__", command)
+                    self.assertEqual(command[-1], "$@")
+                    if arch == "armeabi-v7a":
+                        for flag in ("-march=armv7-a", "-mfloat-abi=softfp",
+                                     "-mtune=generic-armv7-a", "-mthumb"):
+                            self.assertIn(flag, command)
+                    else:
+                        self.assertNotIn("-mfloat-abi=softfp", command)
 
     def archive(self, mode=0o755):
         path = self.root / "uutils-coreutils.hnp"

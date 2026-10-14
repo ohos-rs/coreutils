@@ -111,15 +111,16 @@ def normalize_archive(archive: Path):
         temporary.unlink(missing_ok=True)
 
 
-def build(sdk: Path, arch: str, profile: str, output: Path, offline: bool, pty_probe=False):
+def toolchain_environment(sdk: Path, arch: str, tools: Path):
     target, clang_target = TARGETS[arch]
-    target_dir = ROOT / "target/ohos"
-    tools = target_dir / "toolchain" / arch
     tools.mkdir(parents=True, exist_ok=True)
     for name in ("clang", "clang++"):
         wrapper = tools / name
         command = [str(sdk / "native/llvm/bin" / name), f"--target={clang_target}",
                    f"--sysroot={sdk / 'native/sysroot'}", "-D__MUSL__"]
+        if arch == "armeabi-v7a":
+            command.extend(["-march=armv7-a", "-mfloat-abi=softfp",
+                            "-mtune=generic-armv7-a", "-mthumb"])
         wrapper.write_text("#!/bin/sh\nexec " + shlex.join(command) + ' "$@"\n')
         wrapper.chmod(0o755)
     env = os.environ.copy()
@@ -130,7 +131,17 @@ def build(sdk: Path, arch: str, profile: str, output: Path, offline: bool, pty_p
         "CXX_" + suffix: str(tools / "clang++"),
         "AR_" + suffix: str(sdk / "native/llvm/bin/llvm-ar"),
         "LIBSTDBUF_DIR": "/data/service/hnp/bin",
+        "OHOS_NDK_HOME": str(sdk),
     })
+    return env
+
+
+def build(sdk: Path, arch: str, profile: str, output: Path, offline: bool, pty_probe=False,
+          target_dir: Path | None = None):
+    target, _ = TARGETS[arch]
+    target_dir = target_dir or ROOT / "target/ohos"
+    tools = target_dir / "toolchain" / arch
+    env = toolchain_environment(sdk, arch, tools)
     metadata = json.loads(subprocess.check_output(
         ["cargo", "metadata", "--no-deps", "--format-version=1"], cwd=ROOT))
     package_id = next(p["id"] for p in metadata["packages"] if p["name"] == "coreutils")
@@ -187,6 +198,7 @@ def main():
     parser.add_argument("--arch", choices=TARGETS, default="arm64-v8a")
     parser.add_argument("--profile", choices=("dev", "release", "release-small"), default="release-small")
     parser.add_argument("--out", type=Path, help="Output directory (defaults to target/ohos/hnp/<arch>)")
+    parser.add_argument("--target-dir", type=Path, help="Cargo cache directory (defaults to target/ohos)")
     parser.add_argument("--offline", action="store_true")
     parser.add_argument("--pty-probe", action="store_true",
                         help="Include a signed C stdio fixture for real PTY buffering tests")
@@ -194,7 +206,8 @@ def main():
     if args.sdk is None:
         parser.error("set --sdk or OHOS_NDK_HOME")
     build(sdk_root(args.sdk), args.arch, args.profile,
-          (args.out or ROOT / "target/ohos/hnp" / args.arch).resolve(), args.offline, args.pty_probe)
+          (args.out or ROOT / "target/ohos/hnp" / args.arch).resolve(), args.offline, args.pty_probe,
+          args.target_dir.resolve() if args.target_dir else None)
 
 
 if __name__ == "__main__":
